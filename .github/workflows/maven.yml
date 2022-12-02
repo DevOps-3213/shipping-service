@@ -1,14 +1,25 @@
-name: Java CI with Mavensd
+name: Production Workflow
 
-on:  
+on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      failJob:
+        description: Fail the job?
+        type: boolean
+        required: true
+        default: false
+
+env:
+  IMAGE: ${{ secrets.DOCKER_USER }}/${{ github.event.repository.name }}-$GITHUB_REF_NAME:latest # Image to push
 
 jobs:
+  #Se genera analisis en Sonarcloud
   build:
-    name: Build and analyze
+    name: Analisis Sonar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -34,4 +45,68 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=DevOps-3213_shipping-service
+        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=DevOps-3213_order-service
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Load env variables # Se cargan variables de entorno del archivo de variables
+        uses: cardinalby/export-env-action@v1
+        with:
+          envFile: "variables.env"
+          expand: "true"
+
+      - name: Create tmp json file with branch name # Se crea un archivo temporal para que la imagen corresponda con la rama
+        run: |
+          tmp=$(mktemp)
+          image=${{ env.IMAGE }}
+          jq --arg a "$image" '.containerDefinitions[0].image = $a' ${{ env.ECS_TASK_DEFINITION }} > "$tmp" && mv "$tmp" tmp.json
+          cat tmp.json
+
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Hub # Login de docker
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Maven build
+        run: mvn -B clean package --file pom.xml
+
+      - name: Build docker
+        run: docker build --build-arg JAR_FILE=./target/orders-service-example-0.0.1-SNAPSHOT.jar -t ${{ env.IMAGE }} .
+
+      - name: Push
+        run: docker push ${{ env.IMAGE }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Fill in the new image ID in the Amazon ECS task definition # Actualización de task definition de AWS
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ./tmp.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ env.IMAGE }}
+
+      - name: Deploy Amazon ECS task definition # Deploy del task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ./tmp.json
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+      #     wait-for-service-stability: true

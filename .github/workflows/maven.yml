@@ -82,7 +82,7 @@ jobs:
         run: mvn -B clean package --file pom.xml
 
       - name: Build docker
-        run: docker build --build-arg JAR_FILE=./target/orders-service-example-0.0.1-SNAPSHOT.jar -t ${{ env.IMAGE }} .
+        run: docker build --build-arg JAR_FILE=./target/$( mvn help:evaluate -Dexpression=project.name -q -DforceStdout )-$( mvn help:evaluate -Dexpression=project.version -q -DforceStdout ).jar -t ${{ env.IMAGE }} .
 
       - name: Push
         run: docker push ${{ env.IMAGE }}

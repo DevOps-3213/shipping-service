@@ -1,5 +1,5 @@
 {
-    "family": "main",
+    "family": "shipping-service",
     "networkMode": "awsvpc",
     "memory": "512",
     "cpu": "256",

@@ -15,6 +15,7 @@ on:
 
 env:
   IMAGE: ${{ secrets.DOCKER_USER }}/${{ github.event.repository.name }}-$GITHUB_REF_NAME:latest # Image to push
+  JAR_FILE: ./target/$( mvn help:evaluate -Dexpression=project.name -q -DforceStdout )-$( mvn help:evaluate -Dexpression=project.version -q -DforceStdout ).jar
 
 jobs:
   #Se genera analisis en Sonarcloud
@@ -82,7 +83,7 @@ jobs:
         run: mvn -B clean package --file pom.xml
 
       - name: Build docker
-        run: docker build --build-arg JAR_FILE=./target/$( mvn help:evaluate -Dexpression=project.name -q -DforceStdout )-$( mvn help:evaluate -Dexpression=project.version -q -DforceStdout ).jar -t ${{ env.IMAGE }} .
+        run: docker build --build-arg JAR_FILE=${{ env.JAR_FILE }} -t ${{ env.IMAGE }} .
 
       - name: Push
         run: docker push ${{ env.IMAGE }}

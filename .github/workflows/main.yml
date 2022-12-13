@@ -1,4 +1,4 @@
-name: Production Workflow
+name: Shipping-service Workflow
 
 on:
   push:
